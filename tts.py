@@ -76,9 +76,12 @@ def text_to_speech(text, output_file="output.wav", voice_name="Kore", style=""):
     )
 
     data = response.candidates[0].content.parts[0].inline_data.data
-    save_wave_file(output_file, data)
-    print(f"Audio saved to {output_file} (voice: {voice_name})")
-    return output_file
+
+    if output_file:
+        save_wave_file(output_file, data)
+        print(f"Audio saved to {output_file} (voice: {voice_name})")
+
+    return data
 
 
 def list_voices():
