@@ -5,18 +5,18 @@ from django.conf import settings
 from django.http import FileResponse, Http404
 from django.shortcuts import render
 
-from tts import FEMALE_VOICES, MALE_VOICES, text_to_speech
+from tts import DEFAULT_VOICE, FEMALE_VOICES, MALE_VOICES, display_name, text_to_speech
 
 
 def index(request):
     context = {
-        "female_voices": FEMALE_VOICES,
-        "male_voices": MALE_VOICES,
+        "female_voices": [(v, display_name(v)) for v in FEMALE_VOICES],
+        "male_voices": [(v, display_name(v)) for v in MALE_VOICES],
     }
 
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
-        voice = request.POST.get("voice", "Kore")
+        voice = request.POST.get("voice", DEFAULT_VOICE)
         style = request.POST.get("style", "").strip()
         context["text"] = text
         context["voice"] = voice

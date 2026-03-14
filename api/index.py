@@ -4,7 +4,6 @@ import io
 import os
 import sys
 import traceback
-import wave
 
 # Add parent dir so we can import tts.py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from flask import Flask, Response, jsonify, request, send_file
 
 try:
-    from tts import ALL_VOICES, FEMALE_VOICES, MALE_VOICES, text_to_speech
+    from tts import ALL_VOICES, DEFAULT_VOICE, FEMALE_VOICES, MALE_VOICES, display_name, text_to_speech
 except Exception as e:
     print(f"Import error: {e}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
@@ -72,7 +71,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <h1>Voicd</h1>
-        <p class="subtitle">Text-to-Speech powered by Gemini</p>
+        <p class="subtitle">Text-to-Speech powered by Google Cloud TTS</p>
 
         <div id="error" class="error hidden"></div>
 
@@ -102,17 +101,17 @@ HTML_PAGE = """<!DOCTYPE html>
                 const select = document.getElementById('voice');
                 const femaleGroup = document.createElement('optgroup');
                 femaleGroup.label = 'Female';
-                data.female.forEach(v => {
+                data.female.forEach(([val, name]) => {
                     const opt = document.createElement('option');
-                    opt.value = v; opt.textContent = v;
-                    if (v === 'Kore') opt.selected = true;
+                    opt.value = val; opt.textContent = name;
+                    if (val === data.default_voice) opt.selected = true;
                     femaleGroup.appendChild(opt);
                 });
                 const maleGroup = document.createElement('optgroup');
                 maleGroup.label = 'Male';
-                data.male.forEach(v => {
+                data.male.forEach(([val, name]) => {
                     const opt = document.createElement('option');
-                    opt.value = v; opt.textContent = v;
+                    opt.value = val; opt.textContent = name;
                     maleGroup.appendChild(opt);
                 });
                 select.appendChild(femaleGroup);
@@ -174,17 +173,19 @@ def home():
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    has_key = bool(os.getenv("GEMINI_API_KEY"))
     return jsonify({
         "status": "ok",
-        "gemini_key_set": has_key,
         "voices_loaded": len(ALL_VOICES),
     })
 
 
 @app.route("/api/voices", methods=["GET"])
 def voices():
-    return jsonify({"female": FEMALE_VOICES, "male": MALE_VOICES})
+    return jsonify({
+        "female": [[v, display_name(v)] for v in FEMALE_VOICES],
+        "male": [[v, display_name(v)] for v in MALE_VOICES],
+        "default_voice": DEFAULT_VOICE,
+    })
 
 
 @app.route("/api/generate", methods=["POST"])
@@ -194,25 +195,16 @@ def generate():
         return jsonify({"error": "JSON body required"}), 400
 
     text = (data.get("text") or "").strip()
-    voice = data.get("voice", "Kore")
+    voice = data.get("voice", DEFAULT_VOICE)
     style = (data.get("style") or "").strip()
 
     if not text:
         return jsonify({"error": "Text is required"}), 400
-    if voice not in ALL_VOICES:
-        return jsonify({"error": f"Unknown voice: {voice}"}), 400
 
     try:
-        pcm_data = text_to_speech(text, output_file=None, voice_name=voice, style=style)
+        wav_data = text_to_speech(text, output_file=None, voice_name=voice, style=style)
 
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
-        wav_buffer.seek(0)
-
+        wav_buffer = io.BytesIO(wav_data)
         return send_file(wav_buffer, mimetype="audio/wav", download_name="voicd_output.wav")
     except Exception as e:
         print(f"Generate error: {e}", file=sys.stderr)

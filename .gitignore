@@ -10,6 +10,11 @@ venv/
 # Environment variables
 .env
 
+# GCP service account keys
+*.json
+!vercel.json
+!package.json
+
 # Django
 db.sqlite3
 staticfiles/

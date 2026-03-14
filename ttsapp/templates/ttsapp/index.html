@@ -122,7 +122,7 @@
 <body>
     <div class="container">
         <h1>Voicd</h1>
-        <p class="subtitle">Text-to-Speech powered by Gemini</p>
+        <p class="subtitle">Text-to-Speech powered by Google Cloud TTS</p>
 
         {% if error %}
         <div class="error">{{ error }}</div>
@@ -136,13 +136,13 @@
             <label for="voice">Voice</label>
             <select id="voice" name="voice">
                 <optgroup label="Female">
-                    {% for v in female_voices %}
-                    <option value="{{ v }}" {% if voice == v %}selected{% endif %}>{{ v }}</option>
+                    {% for val, name in female_voices %}
+                    <option value="{{ val }}" {% if voice == val %}selected{% endif %}>{{ name }}</option>
                     {% endfor %}
                 </optgroup>
                 <optgroup label="Male">
-                    {% for v in male_voices %}
-                    <option value="{{ v }}" {% if voice == v %}selected{% endif %}>{{ v }}</option>
+                    {% for val, name in male_voices %}
+                    <option value="{{ val }}" {% if voice == val %}selected{% endif %}>{{ name }}</option>
                     {% endfor %}
                 </optgroup>
             </select>
