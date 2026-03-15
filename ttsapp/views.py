@@ -5,18 +5,26 @@ from django.conf import settings
 from django.http import FileResponse, Http404
 from django.shortcuts import render
 
-from tts import DEFAULT_VOICE, FEMALE_VOICES, MALE_VOICES, display_name, text_to_speech
+from tts import display_name, get_voices, text_to_speech
+
+
+def _voice_context(provider):
+    female, male, default = get_voices(provider)
+    return {
+        "female_voices": [(v, display_name(v, provider)) for v in female],
+        "male_voices": [(v, display_name(v, provider)) for v in male],
+        "default_voice": default,
+        "provider": provider,
+    }
 
 
 def index(request):
-    context = {
-        "female_voices": [(v, display_name(v)) for v in FEMALE_VOICES],
-        "male_voices": [(v, display_name(v)) for v in MALE_VOICES],
-    }
+    provider = request.GET.get("provider") or request.POST.get("provider", "google")
+    context = _voice_context(provider)
 
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
-        voice = request.POST.get("voice", DEFAULT_VOICE)
+        voice = request.POST.get("voice", context["default_voice"])
         style = request.POST.get("style", "").strip()
         context["text"] = text
         context["voice"] = voice
@@ -31,7 +39,7 @@ def index(request):
         filepath = os.path.join(settings.MEDIA_ROOT, filename)
 
         try:
-            text_to_speech(text, output_file=filepath, voice_name=voice, style=style)
+            text_to_speech(text, output_file=filepath, voice_name=voice, style=style, provider=provider)
             context["audio_url"] = settings.MEDIA_URL + filename
             context["filename"] = filename
         except Exception as e:

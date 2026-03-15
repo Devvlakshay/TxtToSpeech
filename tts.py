@@ -1,176 +1,91 @@
-"""Text-to-Speech using Google Cloud TTS API."""
+"""Unified Text-to-Speech interface supporting Google Cloud and Azure providers."""
 
 import argparse
-import base64
-import json
 import os
-import tempfile
 
 from dotenv import load_dotenv
-from google.cloud import texttospeech
-from google.oauth2 import service_account
 
 load_dotenv()
 
-# Default credentials path (for local development)
-DEFAULT_CREDENTIALS = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "ornate-apricot-490206-j9-c5cb523a0a28.json",
-)
-
-# Curated Chirp3-HD voices (high quality, multilingual)
-FEMALE_VOICES = [
-    "en-US-Chirp3-HD-Achernar",
-    "en-US-Chirp3-HD-Aoede",
-    "en-US-Chirp3-HD-Autonoe",
-    "en-US-Chirp3-HD-Callirrhoe",
-    "en-US-Chirp3-HD-Despina",
-    "en-US-Chirp3-HD-Erinome",
-    "en-US-Chirp3-HD-Gacrux",
-    "en-US-Chirp3-HD-Kore",
-    "en-US-Chirp3-HD-Laomedeia",
-    "en-US-Chirp3-HD-Leda",
-    "en-US-Chirp3-HD-Pulcherrima",
-    "en-US-Chirp3-HD-Sulafat",
-    "en-US-Chirp3-HD-Vindemiatrix",
-    "en-US-Chirp3-HD-Zephyr",
-]
-
-MALE_VOICES = [
-    "en-US-Chirp3-HD-Achird",
-    "en-US-Chirp3-HD-Algenib",
-    "en-US-Chirp3-HD-Algieba",
-    "en-US-Chirp3-HD-Alnilam",
-    "en-US-Chirp3-HD-Charon",
-    "en-US-Chirp3-HD-Enceladus",
-    "en-US-Chirp3-HD-Fenrir",
-    "en-US-Chirp3-HD-Iapetus",
-    "en-US-Chirp3-HD-Orus",
-    "en-US-Chirp3-HD-Puck",
-    "en-US-Chirp3-HD-Rasalgethi",
-    "en-US-Chirp3-HD-Sadachbia",
-    "en-US-Chirp3-HD-Sadaltager",
-    "en-US-Chirp3-HD-Schedar",
-    "en-US-Chirp3-HD-Umbriel",
-    "en-US-Chirp3-HD-Zubenelgenubi",
-]
-
-ALL_VOICES = sorted(FEMALE_VOICES + MALE_VOICES)
-
-DEFAULT_VOICE = "en-US-Chirp3-HD-Kore"
+# Provider modules (lazy imports to avoid requiring both SDKs)
+PROVIDERS = {
+    "google": "tts_google",
+    "azure": "tts_azure",
+}
 
 
-def display_name(voice):
-    """Extract short display name (e.g. 'en-US-Chirp3-HD-Kore' -> 'Kore')."""
-    return voice.rsplit("-", 1)[-1]
+def _get_provider(name):
+    import importlib
+    if name not in PROVIDERS:
+        raise ValueError(f"Unknown provider '{name}'. Choose from: {list(PROVIDERS.keys())}")
+    return importlib.import_module(PROVIDERS[name])
 
 
-def _get_client():
-    """Create a TTS client using service account credentials.
-
-    Supports two modes:
-    - Local: reads JSON file from GOOGLE_APPLICATION_CREDENTIALS or default path
-    - Vercel/Cloud: reads base64-encoded JSON from GCP_CREDENTIALS_B64 env var
-    """
-    # Mode 1: Base64-encoded credentials (for Vercel / serverless)
-    creds_b64 = os.getenv("GCP_CREDENTIALS_B64")
-    if creds_b64:
-        creds_json = json.loads(base64.b64decode(creds_b64))
-        credentials = service_account.Credentials.from_service_account_info(creds_json)
-        return texttospeech.TextToSpeechClient(credentials=credentials)
-
-    # Mode 2: JSON file path (for local development)
-    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", DEFAULT_CREDENTIALS)
-    if not os.path.exists(creds_path):
-        raise ValueError(
-            f"GCP credentials file not found: {creds_path}\n"
-            "Set GOOGLE_APPLICATION_CREDENTIALS or GCP_CREDENTIALS_B64 in your environment."
-        )
-    return texttospeech.TextToSpeechClient.from_service_account_json(creds_path)
+def get_voices(provider="google"):
+    """Return (female_voices, male_voices, default_voice) for a provider."""
+    mod = _get_provider(provider)
+    return mod.FEMALE_VOICES, mod.MALE_VOICES, mod.DEFAULT_VOICE
 
 
-def _language_from_voice(voice_name):
-    """Extract language code from voice name (e.g. 'en-US-Chirp3-HD-Kore' -> 'en-US')."""
-    parts = voice_name.split("-")
-    if len(parts) >= 2:
-        return f"{parts[0]}-{parts[1]}"
-    return "en-US"
+def get_all_voices(provider="google"):
+    mod = _get_provider(provider)
+    return mod.ALL_VOICES
 
 
-def text_to_speech(text, output_file="output.wav", voice_name=None, style=""):
-    """Convert text to speech using Google Cloud TTS.
+def display_name(voice, provider="google"):
+    mod = _get_provider(provider)
+    return mod.display_name(voice)
+
+
+def text_to_speech(text, output_file=None, voice_name=None, style="", provider="google"):
+    """Convert text to speech.
 
     Args:
         text: Text to convert.
         output_file: Output WAV file path (None to skip saving).
-        voice_name: A Google Cloud TTS voice name (e.g. 'en-US-Chirp3-HD-Kore').
-        style: Optional style instructions (prepended to text).
+        voice_name: Voice name (provider-specific).
+        style: Optional style instructions.
+        provider: 'google' or 'azure'.
 
     Returns:
         WAV audio bytes.
     """
-    if voice_name is None:
-        voice_name = DEFAULT_VOICE
-
-    language_code = _language_from_voice(voice_name)
-    client = _get_client()
-
-    input_text = f"{style}: {text}" if style else text
-
-    synthesis_input = texttospeech.SynthesisInput(text=input_text)
-
-    voice_params = texttospeech.VoiceSelectionParams(
-        language_code=language_code,
-        name=voice_name,
-    )
-
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-        sample_rate_hertz=24000,
-    )
-
-    response = client.synthesize_speech(
-        input=synthesis_input,
-        voice=voice_params,
-        audio_config=audio_config,
-    )
-
-    audio_data = response.audio_content
-
-    if output_file:
-        with open(output_file, "wb") as f:
-            f.write(audio_data)
-        print(f"Audio saved to {output_file} (voice: {voice_name})")
-
-    return audio_data
+    mod = _get_provider(provider)
+    return mod.text_to_speech(text, output_file=output_file, voice_name=voice_name, style=style)
 
 
-def list_voices(language_code=None):
-    """List available voices from Google Cloud TTS."""
-    client = _get_client()
-    response = client.list_voices(language_code=language_code)
+# --- Backwards compatibility exports (default to google) ---
+import tts_google
 
-    for voice in response.voices:
-        langs = ", ".join(voice.language_codes)
-        gender = texttospeech.SsmlVoiceGender(voice.ssml_gender).name
-        print(f"  {voice.name:40s} {langs:10s} {gender}")
-
-    print(f"\nTotal: {len(response.voices)} voices")
+FEMALE_VOICES = tts_google.FEMALE_VOICES
+MALE_VOICES = tts_google.MALE_VOICES
+ALL_VOICES = tts_google.ALL_VOICES
+DEFAULT_VOICE = tts_google.DEFAULT_VOICE
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Text-to-Speech using Google Cloud TTS")
+    parser = argparse.ArgumentParser(description="Text-to-Speech (Google Cloud / Azure)")
     parser.add_argument("text", nargs="?", help="Text to convert to speech")
-    parser.add_argument("-v", "--voice", default=DEFAULT_VOICE, help=f"Voice name (default: {DEFAULT_VOICE})")
+    parser.add_argument("-p", "--provider", default="google", choices=["google", "azure"])
+    parser.add_argument("-v", "--voice", default=None, help="Voice name")
     parser.add_argument("-o", "--output", default="output.wav", help="Output WAV file")
     parser.add_argument("-s", "--style", default="", help="Style instructions")
-    parser.add_argument("--list-voices", action="store_true", help="List all available voices")
-    parser.add_argument("--language", default=None, help="Filter voices by language code (e.g. en-US, hi-IN)")
+    parser.add_argument("--list-voices", action="store_true", help="List available voices")
     args = parser.parse_args()
 
     if args.list_voices:
-        list_voices(args.language)
+        female, male, default = get_voices(args.provider)
+        print(f"Provider: {args.provider}\n")
+        print("Female voices:")
+        for v in female:
+            tag = " (default)" if v == default else ""
+            print(f"  {v:45s} {display_name(v, args.provider)}{tag}")
+        print("\nMale voices:")
+        for v in male:
+            tag = " (default)" if v == default else ""
+            print(f"  {v:45s} {display_name(v, args.provider)}{tag}")
     elif args.text:
-        text_to_speech(args.text, args.output, args.voice, args.style)
+        data = text_to_speech(args.text, args.output, args.voice, args.style, args.provider)
+        print(f"Audio saved to {args.output} ({args.provider}, {len(data)} bytes)")
     else:
         parser.print_help()

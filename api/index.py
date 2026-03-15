@@ -5,13 +5,12 @@ import os
 import sys
 import traceback
 
-# Add parent dir so we can import tts.py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, Response, jsonify, request, send_file
 
 try:
-    from tts import ALL_VOICES, DEFAULT_VOICE, FEMALE_VOICES, MALE_VOICES, display_name, text_to_speech
+    from tts import display_name, get_voices, text_to_speech
 except Exception as e:
     print(f"Import error: {e}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
@@ -29,12 +28,8 @@ HTML_PAGE = """<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f0f0f;
-            color: #e0e0e0;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            padding: 40px 20px;
+            background: #0f0f0f; color: #e0e0e0;
+            min-height: 100vh; display: flex; justify-content: center; padding: 40px 20px;
         }
         .container { width: 100%; max-width: 600px; }
         h1 { font-size: 2rem; margin-bottom: 8px; color: #fff; }
@@ -48,13 +43,21 @@ HTML_PAGE = """<!DOCTYPE html>
         }
         textarea { height: 140px; resize: vertical; }
         textarea:focus, input:focus, select:focus { outline: none; border-color: #5b8def; }
-        button {
+        .provider-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+        .provider-tabs button {
+            flex: 1; padding: 10px; border: 1px solid #333; border-radius: 8px;
+            background: transparent; color: #888; font-size: 1rem;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .provider-tabs button:hover { border-color: #5b8def; color: #ccc; }
+        .provider-tabs button.active { background: #5b8def; border-color: #5b8def; color: #fff; }
+        .gen-btn {
             width: 100%; padding: 12px; border: none; border-radius: 8px;
             background: #5b8def; color: #fff; font-size: 1rem;
             font-weight: 600; cursor: pointer; transition: background 0.2s;
         }
-        button:hover { background: #4a7de0; }
-        button:disabled { background: #333; cursor: not-allowed; }
+        .gen-btn:hover { background: #4a7de0; }
+        .gen-btn:disabled { background: #333; cursor: not-allowed; }
         .error { background: #3a1a1a; border: 1px solid #662222; color: #ff6b6b; padding: 12px; border-radius: 8px; margin-bottom: 20px; }
         .result { margin-top: 28px; padding: 20px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
         .result h3 { margin-bottom: 16px; color: #fff; }
@@ -71,7 +74,12 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <h1>Voicd</h1>
-        <p class="subtitle">Text-to-Speech powered by Google Cloud TTS</p>
+        <p class="subtitle">Text-to-Speech</p>
+
+        <div class="provider-tabs">
+            <button id="tab-google" class="active" onclick="switchProvider('google')">Google Cloud</button>
+            <button id="tab-azure" onclick="switchProvider('azure')">Azure</button>
+        </div>
 
         <div id="error" class="error hidden"></div>
 
@@ -84,7 +92,7 @@ HTML_PAGE = """<!DOCTYPE html>
         <label for="style">Style Instructions <span class="hint">(optional)</span></label>
         <input type="text" id="style" placeholder="e.g. Say cheerfully, Speak in a whisper, Read slowly">
 
-        <button id="gen-btn" onclick="generate()">Generate Speech</button>
+        <button class="gen-btn" id="gen-btn" onclick="generate()">Generate Speech</button>
         <div class="spinner" id="spinner">Generating audio, please wait...</div>
 
         <div id="result" class="result hidden">
@@ -95,28 +103,50 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
 
     <script>
-        fetch('/api/voices')
-            .then(r => r.json())
-            .then(data => {
-                const select = document.getElementById('voice');
-                const femaleGroup = document.createElement('optgroup');
-                femaleGroup.label = 'Female';
-                data.female.forEach(([val, name]) => {
-                    const opt = document.createElement('option');
-                    opt.value = val; opt.textContent = name;
-                    if (val === data.default_voice) opt.selected = true;
-                    femaleGroup.appendChild(opt);
+        let currentProvider = 'google';
+        let voiceData = {};
+
+        function loadVoices(provider) {
+            fetch('/api/voices?provider=' + provider)
+                .then(r => r.json())
+                .then(data => {
+                    voiceData[provider] = data;
+                    renderVoices(data);
                 });
-                const maleGroup = document.createElement('optgroup');
-                maleGroup.label = 'Male';
-                data.male.forEach(([val, name]) => {
-                    const opt = document.createElement('option');
-                    opt.value = val; opt.textContent = name;
-                    maleGroup.appendChild(opt);
-                });
-                select.appendChild(femaleGroup);
-                select.appendChild(maleGroup);
+        }
+
+        function renderVoices(data) {
+            const select = document.getElementById('voice');
+            select.innerHTML = '';
+            const femaleGroup = document.createElement('optgroup');
+            femaleGroup.label = 'Female';
+            data.female.forEach(([val, name]) => {
+                const opt = document.createElement('option');
+                opt.value = val; opt.textContent = name;
+                if (val === data.default_voice) opt.selected = true;
+                femaleGroup.appendChild(opt);
             });
+            const maleGroup = document.createElement('optgroup');
+            maleGroup.label = 'Male';
+            data.male.forEach(([val, name]) => {
+                const opt = document.createElement('option');
+                opt.value = val; opt.textContent = name;
+                maleGroup.appendChild(opt);
+            });
+            select.appendChild(femaleGroup);
+            select.appendChild(maleGroup);
+        }
+
+        function switchProvider(provider) {
+            currentProvider = provider;
+            document.querySelectorAll('.provider-tabs button').forEach(b => b.classList.remove('active'));
+            document.getElementById('tab-' + provider).classList.add('active');
+            if (voiceData[provider]) {
+                renderVoices(voiceData[provider]);
+            } else {
+                loadVoices(provider);
+            }
+        }
 
         async function generate() {
             const text = document.getElementById('text').value.trim();
@@ -139,7 +169,7 @@ HTML_PAGE = """<!DOCTYPE html>
                 const resp = await fetch('/api/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, voice, style }),
+                    body: JSON.stringify({ text, voice, style, provider: currentProvider }),
                 });
 
                 if (!resp.ok) {
@@ -161,6 +191,9 @@ HTML_PAGE = """<!DOCTYPE html>
                 spinner.style.display = 'none';
             }
         }
+
+        // Load default provider voices
+        loadVoices('google');
     </script>
 </body>
 </html>"""
@@ -173,18 +206,17 @@ def home():
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({
-        "status": "ok",
-        "voices_loaded": len(ALL_VOICES),
-    })
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/voices", methods=["GET"])
 def voices():
+    provider = request.args.get("provider", "google")
+    female, male, default = get_voices(provider)
     return jsonify({
-        "female": [[v, display_name(v)] for v in FEMALE_VOICES],
-        "male": [[v, display_name(v)] for v in MALE_VOICES],
-        "default_voice": DEFAULT_VOICE,
+        "female": [[v, display_name(v, provider)] for v in female],
+        "male": [[v, display_name(v, provider)] for v in male],
+        "default_voice": default,
     })
 
 
@@ -195,15 +227,15 @@ def generate():
         return jsonify({"error": "JSON body required"}), 400
 
     text = (data.get("text") or "").strip()
-    voice = data.get("voice", DEFAULT_VOICE)
+    voice = data.get("voice")
     style = (data.get("style") or "").strip()
+    provider = data.get("provider", "google")
 
     if not text:
         return jsonify({"error": "Text is required"}), 400
 
     try:
-        wav_data = text_to_speech(text, output_file=None, voice_name=voice, style=style)
-
+        wav_data = text_to_speech(text, output_file=None, voice_name=voice, style=style, provider=provider)
         wav_buffer = io.BytesIO(wav_data)
         return send_file(wav_buffer, mimetype="audio/wav", download_name="voicd_output.wav")
     except Exception as e:
