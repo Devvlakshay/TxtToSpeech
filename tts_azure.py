@@ -4,21 +4,18 @@ import os
 import urllib.request
 
 FEMALE_VOICES = [
-    "en-US-AvaMultilingualNeural",
-    "en-US-EmmaMultilingualNeural",
-    "en-US-JennyNeural",
-    "en-US-AriaNeural",
     "hi-IN-AnanyaNeural",
+    "hi-IN-AartiNeural",
+    "hi-IN-KavyaNeural",
     "hi-IN-SwaraNeural",
 ]
 
 MALE_VOICES = [
-    "en-US-AndrewMultilingualNeural",
-    "en-US-BrianMultilingualNeural",
-    "en-US-GuyNeural",
-    "en-US-DavisNeural",
     "hi-IN-AaravNeural",
+    "hi-IN-ArjunNeural",
+    "hi-IN-KunalNeural",
     "hi-IN-MadhurNeural",
+    "hi-IN-RehaanNeural",
 ]
 
 ALL_VOICES = sorted(FEMALE_VOICES + MALE_VOICES)
@@ -26,12 +23,10 @@ DEFAULT_VOICE = "hi-IN-SwaraNeural"
 
 
 def display_name(voice):
-    """e.g. 'hi-IN-AaravNeural' -> 'Aarav (hi-IN)'"""
+    """e.g. 'hi-IN-AaravNeural' -> 'Aarav'"""
     parts = voice.split("-")
     if len(parts) >= 3:
-        lang = f"{parts[0]}-{parts[1]}"
-        name = parts[2].replace("Neural", "").replace("Multilingual", "")
-        return f"{name} ({lang})"
+        return parts[2].replace("Neural", "")
     return voice
 
 
